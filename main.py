@@ -1,7 +1,8 @@
-from is_wire.core import Channel,Subscription,Message
-from is_msgs.image_pb2 import Image
-import numpy as np
 import cv2
+import numpy as np
+from is_msgs.image_pb2 import Image
+from is_wire.core import Channel, Message, Subscription
+
 
 # Função que consegue as imagens das camêras?
 def to_np(input_image):
@@ -12,74 +13,88 @@ def to_np(input_image):
         output_image = cv2.imdecode(buffer, flags=cv2.IMREAD_COLOR)
     else:
         output_image = np.array([], dtype=np.uint8)
-    return output_image 
+    return output_image
 
 # Leitura das imagens e apresentacao
-quadro01_rgb = cv2.imread('criacaodepindao.jpeg')
-#quadro01_rgb = cv2.cvtColor(quadro01, cv2.COLOR_RGB2BGR)
+quadro01_rgb = cv2.imread("image.png")
+# quadro01_rgb = cv2.cvtColor(quadro01, cv2.COLOR_RGB2BGR)
 
 # Tamanho da imagem que sera inserida no lugar dos ArUcos
-[l,c,ch] = np.shape(quadro01_rgb)
+[l, c, ch] = np.shape(quadro01_rgb)
 
 # Pixels das quinas da imagem que sera inserida com ajuda do warp
-pts_src = np.array([[0,0],[c,0],[c,l],[0,l]])
+pts_src = np.array([[0, 0], [c, 0], [c, l], [0, l]])
 
 # Carrega o dicionario que foi usado para gerar os ArUcos e inicializa o detector usando valores padroes para os parametros
-parameters =  cv2.aruco.DetectorParameters()
+parameters = cv2.aruco.DetectorParameters()
 dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
 arucoDetector = cv2.aruco.ArucoDetector(dictionary, parameters)
 
-camera_id = 1
+camera_id = 4
 
 # Definicoes para aquisicao das imagens no Espaco Inteligente
 broker_uri = "amqp://guest:guest@10.10.2.211:30000"
 channel = Channel(broker_uri)
 
 subscription = Subscription(channel=channel)
-subscription.subscribe(topic='CameraGateway.{}.Frame'.format(camera_id))
+subscription.subscribe(topic="CameraGateway.{}.Frame".format(camera_id))
 
-nome_imagem = 'Camera'
+nome_imagem = "Camera"
+mask3 = None
 
-while(True):
+
+# id acima de 50 
+monalisa = False
+criacaoAdao = False
+oGrito = False
+ceuEstrelado = False
+frida = False
+salvadorDali = False
+
+
+while True:
     # Captura um frame
     msg = channel.consume()
     if type(msg) != bool:
         img = msg.unpack(Image)
-        frame = to_np(img) 
+        frame = to_np(img)
 
-    # Detecta os marcadores na imagem (frame)
+    # ds os marcadores na imagem (frame)
     markerCorners, markerIds, rejectedImgPoints = arucoDetector.detectMarkers(frame)
-    
+
     # Para cada marcador detectado
-    for mark in markerCorners:  
-      # Anota as quinas do marcador detectado como pontos de destino da homografia
-      pts_dst = np.array(mark[0])
+    for i, marks in enumerate(markerCorners):
+        for mark in marks:
+            print(markerIds[i][0])
+            if markerIds[i][0] == 9:
+                # Anota as quinas do marcador detectado como pontos de destino da homografia
+                pts_dst = np.array(mark)
 
-      # Calcula a homografia
-      H, status = cv2.findHomography(pts_src, pts_dst)
+                # Calcula a homografia
+                H, status = cv2.findHomography(pts_src, pts_dst)
 
-      # Faz o warp na imagem para que ela seja inserida
-      warped_image = cv2.warpPerspective(quadro01_rgb, H, (frame.shape[1],frame.shape[0]))
+                # Faz o warp na imagem para que ela seja inserida
+                warped_image = cv2.warpPerspective(
+                    quadro01_rgb, H, (frame.shape[1], frame.shape[0])
+                )
 
-      # Prepara a mascara para que apenas a foto contida no warp da imagem substitua pixels da outra imagem
-      mask = np.zeros([frame.shape[0], frame.shape[1]], dtype=np.uint8)
-      cv2.fillConvexPoly(mask, np.int32([pts_dst]), (1, 1, 1), cv2.LINE_AA)
+                # Prepara a mascara para que apenas a foto contida no warp da imagem substitua pixels da outra imagem
+                mask = np.zeros([frame.shape[0], frame.shape[1]], dtype=np.uint8)
+                cv2.fillConvexPoly(mask, np.int32([pts_dst]), (1, 1, 1), cv2.LINE_AA)
 
-      # Transforma essa mascara em 3 canais
-      mask3 = np.zeros_like(warped_image)
-      for i in range(0, 3):
-          mask3[:,:,i] = mask
+                # Transforma essa mascara em 3 canais
+                mask3 = np.zeros_like(warped_image)
+                for i in range(0, 3):
+                    mask3[:, :, i] = mask
+                # Desenha as quinas detectadas na imagem
+                # frame = cv2.aruco.drawDetectedMarkers(frame, markerCorners, markerIds)
+                # Insere a imagem do warp na imagem original tirando o ArUco dela com ajuda da mascara
+                frame = cv2.multiply(frame, 1 - mask3)
+                frame = cv2.add(warped_image, frame)
 
-    # Desenha as quinas detectadas na imagem
-    img01_corners = cv2.aruco.drawDetectedMarkers(frame, markerCorners, markerIds)
-    
-    # Insere a imagem do warp na imagem original tirando o ArUco dela com ajuda da mascara
-    frame_masked = cv2.multiply(frame, 1-mask3)
-    quadrop_rgb = cv2.add(warped_image, frame_masked)
-    
-    cv2.imshow('img01_corners',quadrop_rgb)
-    
-    if cv2.waitKey(1) & 0xFF == ord('q'):
+    cv2.imshow("img01_corners", frame)
+
+    if cv2.waitKey(1) & 0xFF == ord("q"):
         break
 
 cv2.destroyAllWindows()
